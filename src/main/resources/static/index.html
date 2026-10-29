@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Urja Meter Ops 2.0 — Flock Energy API & Grid Explorer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Leaflet Map CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 9999px; }
+        #meter-map { height: 420px; border-radius: 0.75rem; z-index: 10; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-slate-900 text-white sticky top-0 z-50 shadow-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shadow-sm">
+                    ⚡
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight flex items-center gap-2">
+                        Urja Meter Ops <span class="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-mono">v2.0 API</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Flock Energy • Distribution Operations & Analytics Engine</p>
+                </div>
+            </div>
+
+            <!-- Quick Links & Actions -->
+            <div class="flex items-center gap-3">
+                <div id="sync-pill" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 text-xs font-medium text-slate-300 ring-1 ring-slate-700">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="sync-status-text">Connected</span>
+                </div>
+                <button onclick="triggerSync()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-sm">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    Sync Dataset
+                </button>
+                <a href="/swagger-ui.html" target="_blank" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 ring-1 ring-slate-700 transition flex items-center gap-1">
+                    <span>Swagger UI</span>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                </a>
+                <a href="/v3/api-docs" target="_blank" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 ring-1 ring-slate-700 transition">
+                    OpenAPI JSON
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
+
+        <!-- KPI Metric Cards -->
+        <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-white rounded-xl p-4 shadow-sm ring-1 ring-slate-200/80">
+                <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Smart Meters</span>
+                <div class="mt-1 flex items-baseline justify-between">
+                    <span id="kpi-total-meters" class="text-2xl font-bold text-slate-900">—</span>
+                    <span class="text-xs font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700">100% Indexed</span>
+                </div>
+                <div class="mt-2 text-xs text-slate-400">Auto-synced via HMAC bulk export</div>
+            </div>
+
+            <div class="bg-white rounded-xl p-4 shadow-sm ring-1 ring-slate-200/80">
+                <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Fleet Health Score</span>
+                <div class="mt-1 flex items-baseline justify-between">
+                    <span id="kpi-health-score" class="text-2xl font-bold text-emerald-600">—</span>
+                    <span class="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">Active / (Act + Flt)</span>
+                </div>
+                <div class="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
+                    <div id="kpi-health-bar" class="bg-emerald-500 h-1.5 rounded-full" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-4 shadow-sm ring-1 ring-slate-200/80">
+                <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Operational Status</span>
+                <div class="mt-1 flex items-center gap-2">
+                    <span class="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
+                        ● <span id="kpi-installed">—</span> Inst
+                    </span>
+                    <span class="inline-flex items-center gap-1 text-xs font-medium text-rose-700 bg-rose-50 px-2 py-0.5 rounded">
+                        ● <span id="kpi-faulty">—</span> Flt
+                    </span>
+                    <span class="inline-flex items-center gap-1 text-xs font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                        ● <span id="kpi-decommissioned">—</span> Decom
+                    </span>
+                </div>
+                <div class="mt-2 text-xs text-slate-400">Real-time status classification</div>
+            </div>
+
+            <div class="bg-white rounded-xl p-4 shadow-sm ring-1 ring-slate-200/80">
+                <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Transformers (DTs)</span>
+                <div class="mt-1 flex items-baseline justify-between">
+                    <span id="kpi-transformers" class="text-2xl font-bold text-slate-900">—</span>
+                    <span id="kpi-capacity" class="text-xs font-semibold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700">— kVA</span>
+                </div>
+                <div class="mt-2 text-xs text-slate-400">Distribution transformers across 40 nodes</div>
+            </div>
+        </section>
+
+        <!-- Navigation Tabs -->
+        <nav class="flex border-b border-slate-200 text-sm font-medium space-x-6">
+            <button onclick="switchTab('meters')" id="tab-btn-meters" class="py-3 px-1 border-b-2 border-blue-600 text-blue-600 font-semibold flex items-center gap-2">
+                <span>📍 Smart Meters & Geo Map</span>
+            </button>
+            <button onclick="switchTab('transformers')" id="tab-btn-transformers" class="py-3 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center gap-2">
+                <span>⚡ Transformers (DTs)</span>
+            </button>
+            <button onclick="switchTab('hierarchy')" id="tab-btn-hierarchy" class="py-3 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center gap-2">
+                <span>🌳 Network Hierarchy Tree</span>
+            </button>
+            <button onclick="switchTab('analytics')" id="tab-btn-analytics" class="py-3 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center gap-2">
+                <span>📊 Analytics & Equipment</span>
+            </button>
+        </nav>
+
+        <!-- TAB 1: SMART METERS & MAP -->
+        <div id="tab-meters" class="space-y-5">
+            <!-- Filter & Search Controls -->
+            <div class="bg-white rounded-xl p-4 shadow-sm ring-1 ring-slate-200/80 space-y-3">
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+                    <div class="md:col-span-2 relative">
+                        <input id="filter-search" oninput="debouncedSearch()" type="text" placeholder="Search by Meter ID, Serial, or DT..."
+                               class="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <svg class="w-4 h-4 text-slate-400 absolute left-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </div>
+                    <div>
+                        <select id="filter-make" onchange="fetchMeters(1)" class="w-full py-2 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">All Makes</option>
+                            <option value="HPL">HPL</option>
+                            <option value="L&T">L&T</option>
+                            <option value="Genus">Genus</option>
+                            <option value="Allied">Allied</option>
+                            <option value="Secure">Secure</option>
+                        </select>
+                    </div>
+                    <div>
+                        <select id="filter-status" onchange="fetchMeters(1)" class="w-full py-2 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">All Statuses</option>
+                            <option value="Installed">Installed</option>
+                            <option value="Faulty">Faulty</option>
+                            <option value="Decommissioned">Decommissioned</option>
+                        </select>
+                    </div>
+                    <div>
+                        <select id="filter-phase" onchange="fetchMeters(1)" class="w-full py-2 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">All Phases</option>
+                            <option value="single">Single Phase</option>
+                            <option value="three">Three Phase</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Geospatial Radius Search Toggle -->
+                <div class="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between text-xs gap-3">
+                    <div class="flex items-center gap-3">
+                        <label class="inline-flex items-center gap-1.5 font-medium text-slate-700 cursor-pointer">
+                            <input id="geo-toggle" type="checkbox" onchange="toggleGeoFilter()" class="rounded text-blue-600 focus:ring-blue-500">
+                            <span>Enable Geospatial Radius Search (Proximity)</span>
+                        </label>
+                        <div id="geo-controls" class="hidden items-center gap-2">
+                            <span class="text-slate-500">Near DT-001 (Jaipur Center):</span>
+                            <input id="geo-radius" type="range" min="1" max="25" value="5" oninput="updateRadiusLabel(this.value)" onchange="fetchMeters(1)" class="w-24">
+                            <span id="radius-label" class="font-bold text-blue-600">5 km</span>
+                        </div>
+                    </div>
+                    <div class="text-slate-500">
+                        Showing <span id="meters-count" class="font-semibold text-slate-800">0</span> matching smart meters
+                    </div>
+                </div>
+            </div>
+
+            <!-- Geospatial Map Container -->
+            <div class="bg-white rounded-xl p-3 shadow-sm ring-1 ring-slate-200/80">
+                <div class="flex items-center justify-between px-2 pb-2">
+                    <span class="text-xs font-semibold text-slate-700 uppercase tracking-wide">🗺️ Live Fleet Geospatial Topology</span>
+                    <span class="text-xs text-slate-400">Click any marker to inspect nameplate and energy telemetry</span>
+                </div>
+                <div id="meter-map"></div>
+            </div>
+
+            <!-- Meters Inventory Table -->
+            <div class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/80 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm divide-y divide-slate-200">
+                        <thead class="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                            <tr>
+                                <th class="px-4 py-3">Meter ID</th>
+                                <th class="px-4 py-3">Serial No</th>
+                                <th class="px-4 py-3">Make</th>
+                                <th class="px-4 py-3">Phase</th>
+                                <th class="px-4 py-3">Status</th>
+                                <th class="px-4 py-3">DT Code</th>
+                                <th class="px-4 py-3">Coordinates</th>
+                                <th class="px-4 py-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="meters-table-body" class="divide-y divide-slate-100 text-slate-700">
+                            <tr><td colspan="8" class="text-center py-8 text-slate-400">Loading smart meters...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination Footer -->
+                <div class="px-4 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-600">
+                    <button id="btn-prev" onclick="changePage(-1)" class="px-3 py-1.5 rounded bg-white border border-slate-300 font-medium hover:bg-slate-50 disabled:opacity-40">Previous</button>
+                    <span id="page-indicator">Page 1 of 1</span>
+                    <button id="btn-next" onclick="changePage(1)" class="px-3 py-1.5 rounded bg-white border border-slate-300 font-medium hover:bg-slate-50 disabled:opacity-40">Next</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: DISTRIBUTION TRANSFORMERS -->
+        <div id="tab-transformers" class="hidden space-y-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-base font-bold text-slate-800">Distribution Transformers (DTs)</h2>
+                    <p class="text-xs text-slate-500">Substation downstream nodes and transformer loading capacities</p>
+                </div>
+            </div>
+            <div id="transformers-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- DT Cards dynamically injected -->
+            </div>
+        </div>
+
+        <!-- TAB 3: NETWORK HIERARCHY TREE -->
+        <div id="tab-hierarchy" class="hidden space-y-4">
+            <div class="bg-white rounded-xl p-5 shadow-sm ring-1 ring-slate-200/80">
+                <div class="mb-4">
+                    <h2 class="text-base font-bold text-slate-800">Distribution Network Topology</h2>
+                    <p class="text-xs text-slate-500">Reconstructed 7-level hierarchy tree (Zone › Circle › Division › Subdivision › Substation › Feeder › DT › Meters)</p>
+                </div>
+                <div id="hierarchy-tree-container" class="space-y-2 text-sm">
+                    <!-- Tree injected here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: ANALYTICS & EQUIPMENT -->
+        <div id="tab-analytics" class="hidden space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-white rounded-xl p-5 shadow-sm ring-1 ring-slate-200/80">
+                    <h3 class="text-sm font-bold text-slate-700 mb-3">Manufacturer Make Distribution</h3>
+                    <div class="h-64 flex items-center justify-center">
+                        <canvas id="chart-makes"></canvas>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl p-5 shadow-sm ring-1 ring-slate-200/80">
+                    <h3 class="text-sm font-bold text-slate-700 mb-3">Phase Type Breakdown</h3>
+                    <div class="h-64 flex items-center justify-center">
+                        <canvas id="chart-phases"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- METER DETAIL & CONSUMPTION MODAL -->
+    <div id="meter-modal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl ring-1 ring-slate-200 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <!-- Modal Header -->
+            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+                <div>
+                    <h3 id="modal-meter-id" class="text-lg font-bold text-slate-900">Meter Details</h3>
+                    <p id="modal-hierarchy" class="text-xs text-slate-500 font-mono mt-0.5"></p>
+                </div>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-xl font-bold p-1">&times;</button>
+            </div>
+
+            <!-- Modal Body (Scrollable) -->
+            <div class="p-6 overflow-y-auto space-y-6 custom-scrollbar">
+                <!-- Nameplate Specs Grid -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200/80 text-xs">
+                    <div>
+                        <span class="text-slate-400 block">Serial Number</span>
+                        <span id="modal-serial" class="font-bold text-slate-800 text-sm">—</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-400 block">Manufacturer</span>
+                        <span id="modal-make" class="font-bold text-slate-800 text-sm">—</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-400 block">Phase & Type</span>
+                        <span id="modal-phase" class="font-bold text-slate-800 text-sm">—</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-400 block">Installation Status</span>
+                        <span id="modal-status" class="font-bold text-slate-800 text-sm">—</span>
+                    </div>
+                </div>
+
+                <!-- Consumption Telemetry Chart -->
+                <div class="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h4 class="text-sm font-bold text-slate-800">7-Day Interval Telemetry (Active Energy & Voltage)</h4>
+                            <p class="text-xs text-slate-400">337 half-hourly interval readings from Urja Meter Ops</p>
+                        </div>
+                        <span id="modal-voltage-badge" class="text-xs px-2.5 py-1 rounded-full font-semibold"></span>
+                    </div>
+
+                    <!-- Telemetry Stats -->
+                    <div class="grid grid-cols-3 gap-3 text-center py-2 bg-slate-50 rounded-lg text-xs">
+                        <div>
+                            <span class="text-slate-400 block">Total Energy Consumed</span>
+                            <span id="modal-consumed" class="font-bold text-slate-800 text-sm">— kWh</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-400 block">Average Voltage (R-Phase)</span>
+                            <span id="modal-avg-volt" class="font-bold text-slate-800 text-sm">— V</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-400 block">Voltage Fluctuation Range</span>
+                            <span id="modal-range-volt" class="font-bold text-slate-800 text-sm">—</span>
+                        </div>
+                    </div>
+
+                    <!-- Chart Canvas -->
+                    <div class="h-64">
+                        <canvas id="consumption-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="px-6 py-3 border-t border-slate-200 bg-slate-50 flex justify-end">
+                <button onclick="closeModal()" class="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-white transition">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        let currentPage = 1;
+        let totalPages = 1;
+        let map = null;
+        let mapMarkers = [];
+        let searchTimeout = null;
+        let consumptionChart = null;
+        let makesChart = null;
+        let phasesChart = null;
+
+        // Initialize App
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            loadOverview();
+            fetchMeters(1);
+            loadTransformers();
+            loadHierarchy();
+            checkSyncStatus();
+        });
+
+        function initMap() {
+            // Center around Jaipur electricity utility region
+            map = L.map('meter-map').setView([26.88, 75.82], 11);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+        }
+
+        async function checkSyncStatus() {
+            try {
+                const res = await fetch('/api/v1/sync/status');
+                const data = await res.json();
+                document.getElementById('sync-status-text').textContent = data.isSynced ? 'Synchronized' : 'Syncing...';
+            } catch (e) {
+                document.getElementById('sync-status-text').textContent = 'Connecting...';
+            }
+        }
+
+        async function triggerSync() {
+            const btn = event.currentTarget;
+            btn.disabled = true;
+            btn.innerHTML = 'Syncing...';
+            try {
+                const res = await fetch('/api/v1/sync', { method: 'POST' });
+                const data = await res.json();
+                alert(`Dataset synced! ${data.metersSynced} meters and ${data.transformersSynced} transformers loaded.`);
+                loadOverview();
+                fetchMeters(1);
+                loadTransformers();
+                loadHierarchy();
+            } catch (e) {
+                alert('Sync failed: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Sync Dataset';
+            }
+        }
+
+        async function loadOverview() {
+            try {
+                const res = await fetch('/api/v1/analytics/overview');
+                const data = await res.json();
+
+                document.getElementById('kpi-total-meters').textContent = data.totalMeters.toLocaleString();
+                document.getElementById('kpi-health-score').textContent = `${data.healthScorePercentage}%`;
+                document.getElementById('kpi-health-bar').style.width = `${data.healthScorePercentage}%`;
+
+                document.getElementById('kpi-installed').textContent = data.installedMeters;
+                document.getElementById('kpi-faulty').textContent = data.faultyMeters;
+                document.getElementById('kpi-decommissioned').textContent = data.decommissionedMeters;
+
+                document.getElementById('kpi-transformers').textContent = data.totalTransformers;
+                document.getElementById('kpi-capacity').textContent = `${data.totalCapacityKva} kVA`;
+
+                renderCharts(data);
+            } catch (e) {
+                console.error("Overview error:", e);
+            }
+        }
+
+        function debouncedSearch() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => fetchMeters(1), 250);
+        }
+
+        function toggleGeoFilter() {
+            const enabled = document.getElementById('geo-toggle').checked;
+            document.getElementById('geo-controls').classList.toggle('hidden', !enabled);
+            document.getElementById('geo-controls').classList.toggle('flex', enabled);
+            fetchMeters(1);
+        }
+
+        function updateRadiusLabel(val) {
+            document.getElementById('radius-label').textContent = `${val} km`;
+        }
+
+        async function fetchMeters(page) {
+            currentPage = page;
+            const q = document.getElementById('filter-search').value.trim();
+            const make = document.getElementById('filter-make').value;
+            const status = document.getElementById('filter-status').value;
+            const phase = document.getElementById('filter-phase').value;
+            const geoEnabled = document.getElementById('geo-toggle').checked;
+            const radius = document.getElementById('geo-radius').value;
+
+            let url = `/api/v1/meters?page=${page}&size=20`;
+            if (q) url += `&q=${encodeURIComponent(q)}`;
+            if (make) url += `&make=${encodeURIComponent(make)}`;
+            if (status) url += `&status=${encodeURIComponent(status)}`;
+            if (phase) url += `&phase=${encodeURIComponent(phase)}`;
+            if (geoEnabled) {
+                // DT-001 Jaipur coordinates
+                url += `&nearLat=26.9389&nearLng=75.8309&radiusKm=${radius}`;
+            }
+
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                renderMetersTable(data.content);
+                document.getElementById('meters-count').textContent = data.totalElements;
+                document.getElementById('page-indicator').textContent = `Page ${data.page} of ${data.totalPages}`;
+                totalPages = data.totalPages;
+                document.getElementById('btn-prev').disabled = data.isFirst;
+                document.getElementById('btn-next').disabled = data.isLast;
+
+                updateMapMarkers(data.content);
+            } catch (e) {
+                console.error("Failed to fetch meters", e);
+            }
+        }
+
+        function renderMetersTable(meters) {
+            const tbody = document.getElementById('meters-table-body');
+            if (!meters || meters.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-400">No smart meters match your criteria.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = meters.map(m => {
+                const statusBadge = getStatusBadge(m.installStatus);
+                const coords = m.geo ? `${m.geo.lat.toFixed(4)}, ${m.geo.lng.toFixed(4)}` : '—';
+                return `
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="px-4 py-3 font-semibold text-blue-600 font-mono">${m.meterId}</td>
+                        <td class="px-4 py-3 font-mono text-slate-600">${m.serialNo || '—'}</td>
+                        <td class="px-4 py-3 font-medium">${m.make || '—'}</td>
+                        <td class="px-4 py-3 text-slate-600 capitalize">${m.phaseType || '—'}</td>
+                        <td class="px-4 py-3">${statusBadge}</td>
+                        <td class="px-4 py-3 font-mono text-slate-600">${m.dtCode || '—'}</td>
+                        <td class="px-4 py-3 text-xs text-slate-500 font-mono">${coords}</td>
+                        <td class="px-4 py-3 text-right">
+                            <button onclick="openMeterDetail('${m.meterId}')" class="px-2.5 py-1 text-xs font-semibold rounded bg-blue-50 text-blue-700 hover:bg-blue-100 transition">
+                                Inspect
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function updateMapMarkers(meters) {
+            mapMarkers.forEach(m => map.removeLayer(m));
+            mapMarkers = [];
+
+            meters.forEach(m => {
+                if (m.geo && m.geo.lat && m.geo.lng) {
+                    const color = m.installStatus === 'Installed' ? '#10b981' : (m.installStatus === 'Faulty' ? '#ef4444' : '#64748b');
+                    const marker = L.circleMarker([m.geo.lat, m.geo.lng], {
+                        radius: 6,
+                        fillColor: color,
+                        color: '#fff',
+                        weight: 1.5,
+                        opacity: 1,
+                        fillOpacity: 0.85
+                    }).addTo(map);
+
+                    marker.bindPopup(`
+                        <div class="text-xs space-y-1">
+                            <div class="font-bold text-sm text-slate-800">${m.meterId}</div>
+                            <div>Serial: <b>${m.serialNo}</b></div>
+                            <div>Make: <b>${m.make}</b> (${m.phaseType})</div>
+                            <div>Status: <b>${m.installStatus}</b></div>
+                            <div>DT: <b>${m.dtCode}</b></div>
+                            <button onclick="openMeterDetail('${m.meterId}')" class="mt-2 w-full px-2 py-1 bg-blue-600 text-white rounded text-center block font-semibold">Inspect Telemetry</button>
+                        </div>
+                    `);
+                    mapMarkers.push(marker);
+                }
+            });
+        }
+
+        function changePage(delta) {
+            const newPage = currentPage + delta;
+            if (newPage >= 1 && newPage <= totalPages) {
+                fetchMeters(newPage);
+            }
+        }
+
+        async function openMeterDetail(meterId) {
+            document.getElementById('meter-modal').classList.remove('hidden');
+            document.getElementById('modal-meter-id').textContent = `Loading ${meterId}...`;
+
+            try {
+                const res = await fetch(`/api/v1/meters/${meterId}`);
+                const data = await res.json();
+                const meter = data.meter;
+                const summary = data.consumptionSummary;
+
+                document.getElementById('modal-meter-id').textContent = `Smart Meter ${meter.meterId}`;
+                document.getElementById('modal-hierarchy').textContent = meter.hierarchy ?
+                    `${meter.hierarchy.zone.name} › ${meter.hierarchy.circle.name} › ${meter.hierarchy.substation.name} › ${meter.hierarchy.dt.name}` : '';
+                document.getElementById('modal-serial').textContent = meter.serialNo || '—';
+                document.getElementById('modal-make').textContent = meter.make || '—';
+                document.getElementById('modal-phase').textContent = `${meter.phaseType} (${meter.installType || 'Standard'})`;
+                document.getElementById('modal-status').innerHTML = getStatusBadge(meter.installStatus);
+
+                if (summary) {
+                    document.getElementById('modal-consumed').textContent = `${summary.totalEnergyConsumedKwh ?? 0} kWh`;
+                    document.getElementById('modal-avg-volt').textContent = `${summary.avgVoltage ?? '—'} V`;
+                    document.getElementById('modal-range-volt').textContent = `${summary.minVoltage ?? '—'}V – ${summary.maxVoltage ?? '—'}V`;
+
+                    const vBadge = document.getElementById('modal-voltage-badge');
+                    if (summary.voltageStatus === 'NORMAL') {
+                        vBadge.className = 'text-xs px-2.5 py-1 rounded-full font-semibold bg-emerald-100 text-emerald-800';
+                        vBadge.textContent = 'Voltage Normal';
+                    } else {
+                        vBadge.className = 'text-xs px-2.5 py-1 rounded-full font-semibold bg-rose-100 text-rose-800';
+                        vBadge.textContent = summary.voltageStatus;
+                    }
+                }
+
+                // Fetch full readings for chart
+                const energyRes = await fetch(`/api/v1/meters/${meterId}/consumption`);
+                const energyData = await energyRes.json();
+                renderConsumptionChart(energyData.readings);
+
+            } catch (e) {
+                console.error("Failed to load meter details", e);
+            }
+        }
+
+        function renderConsumptionChart(readings) {
+            const ctx = document.getElementById('consumption-chart').getContext('2d');
+            if (consumptionChart) consumptionChart.destroy();
+
+            if (!readings || readings.length === 0) {
+                return;
+            }
+
+            // Downsample if needed for smooth rendering (take every 2nd or 3rd reading)
+            const sample = readings.slice(-48); // last 24-48 hours of intervals
+            const labels = sample.map(r => r.timestamp.split(' ')[1] || r.timestamp);
+            const kwhValues = sample.map(r => r.kwh);
+            const voltValues = sample.map(r => r.voltR);
+
+            consumptionChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Active Energy (kWh)',
+                            data: kwhValues,
+                            borderColor: '#2563eb',
+                            backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                            fill: true,
+                            tension: 0.3,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Voltage R-Phase (V)',
+                            data: voltValues,
+                            borderColor: '#10b981',
+                            borderDash: [4, 4],
+                            fill: false,
+                            tension: 0.2,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        y: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Active kWh' } },
+                        y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Voltage (V)' }, min: 200, max: 260 }
+                    }
+                }
+            });
+        }
+
+        function closeModal() {
+            document.getElementById('meter-modal').classList.add('hidden');
+        }
+
+        async function loadTransformers() {
+            try {
+                const res = await fetch('/api/v1/transformers');
+                const data = await res.json();
+                const container = document.getElementById('transformers-grid');
+                container.innerHTML = data.map(dt => `
+                    <div class="bg-white rounded-xl p-4 shadow-sm ring-1 ring-slate-200/80 hover:shadow-md transition">
+                        <div class="flex items-start justify-between">
+                            <div>
+                                <span class="font-mono text-xs font-bold text-blue-600">${dt.code}</span>
+                                <h4 class="font-bold text-slate-800 text-sm mt-0.5">${dt.name}</h4>
+                            </div>
+                            <span class="text-xs font-semibold px-2 py-0.5 rounded ${dt.status === 'NORMAL' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}">
+                                ${dt.status}
+                            </span>
+                        </div>
+                        <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                            <span>Feeder: <b>${dt.feederCode}</b></span>
+                            <span>Capacity: <b>${dt.capacityKva} kVA</b></span>
+                        </div>
+                        <div class="mt-2 text-xs flex items-center justify-between text-slate-600 font-medium">
+                            <span>Connected Meters: <b>${dt.meterCount}</b></span>
+                            <span class="text-rose-600">${dt.faultyMeters} faulty</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error("Transformers error:", e);
+            }
+        }
+
+        async function loadHierarchy() {
+            try {
+                const res = await fetch('/api/v1/hierarchy');
+                const data = await res.json();
+                const container = document.getElementById('hierarchy-tree-container');
+                container.innerHTML = renderHierarchyNodes(data);
+            } catch (e) {
+                console.error("Hierarchy error:", e);
+            }
+        }
+
+        function renderHierarchyNodes(nodes, level = 0) {
+            if (!nodes || nodes.length === 0) return '';
+            return nodes.map(n => `
+                <div class="ml-${level * 3} border-l-2 border-slate-200 pl-3 py-1">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono font-bold">${n.level}</span>
+                        <span class="font-semibold text-slate-800">${n.name}</span>
+                        <span class="text-xs font-mono text-slate-400">(${n.id})</span>
+                        <span class="ml-auto text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold">${n.meterCount} meters</span>
+                    </div>
+                    ${n.children ? renderHierarchyNodes(n.children, level + 1) : ''}
+                </div>
+            `).join('');
+        }
+
+        function renderCharts(overview) {
+            // Makes Pie
+            if (makesChart) makesChart.destroy();
+            const makesCtx = document.getElementById('chart-makes').getContext('2d');
+            makesChart = new Chart(makesCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(overview.makeDistribution || {}),
+                    datasets: [{
+                        data: Object.values(overview.makeDistribution || {}),
+                        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+
+            // Phases Bar
+            if (phasesChart) phasesChart.destroy();
+            const phasesCtx = document.getElementById('chart-phases').getContext('2d');
+            phasesChart = new Chart(phasesCtx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(overview.phaseDistribution || {}),
+                    datasets: [{
+                        label: 'Meters count',
+                        data: Object.values(overview.phaseDistribution || {}),
+                        backgroundColor: ['#2563eb', '#6366f1']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+        }
+
+        function switchTab(tab) {
+            ['meters', 'transformers', 'hierarchy', 'analytics'].forEach(t => {
+                document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== tab);
+                const btn = document.getElementById(`tab-btn-${t}`);
+                if (t === tab) {
+                    btn.className = "py-3 px-1 border-b-2 border-blue-600 text-blue-600 font-semibold flex items-center gap-2";
+                } else {
+                    btn.className = "py-3 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center gap-2";
+                }
+            });
+            if (tab === 'meters' && map) {
+                setTimeout(() => map.invalidateSize(), 150);
+            }
+        }
+
+        function getStatusBadge(status) {
+            if (status === 'Installed') return `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Installed</span>`;
+            if (status === 'Faulty') return `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">Faulty</span>`;
+            return `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">${status || 'Unknown'}</span>`;
+        }
+    </script>
+</body>
+</html>

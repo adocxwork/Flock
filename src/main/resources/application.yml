@@ -1,0 +1,51 @@
+server:
+  port: ${PORT:8080}
+  compression:
+    enabled: true
+    mime-types: application/json,text/html,text/plain,application/javascript,text/css
+
+spring:
+  application:
+    name: urja-meter-ops-api
+  cache:
+    type: caffeine
+    cache-names:
+      - meter-search
+      - meter-detail
+      - meter-geo
+      - meter-energy
+      - transformers
+      - hierarchy
+
+urja:
+  portal:
+    base-url: ${URJA_PORTAL_URL:https://urja-ops.flockenergy.tech}
+    username: ${URJA_PORTAL_USERNAME:operator@urja.local}
+    password: ${URJA_PORTAL_PASSWORD:urja-ops-2026}
+    connect-timeout-seconds: 10
+    read-timeout-seconds: 15
+    sync-on-startup: true
+    sync-cron: "0 */15 * * * *"  # every 15 minutes
+    cache:
+      ttl-minutes: 15
+      max-size: 1000
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+    doc-expansion: list
+    display-request-duration: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
